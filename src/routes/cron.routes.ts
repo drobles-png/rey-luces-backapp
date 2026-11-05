@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import { env } from "../config/env";
 import { dbConnect, isConnected } from "../config/mongo";
 import { CustomError } from "../errors/customError.error";
+import { sendAccessReminders } from "../services/reminder.service";
 
 const router = Router();
 
@@ -33,6 +34,23 @@ router.get("/ping", soloCron, async (_req, res, next) => {
     }
     console.log("[cron] ping");
     res.status(200).json({ ok: true, at: new Date().toISOString() });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/cron/access-reminders — una vez al día (ver vercel.json): avisa a
+ * quien le vence el acceso en 7 días y a quien le vence hoy.
+ */
+router.get("/access-reminders", soloCron, async (_req, res, next) => {
+  try {
+    if (!isConnected() && !(await dbConnect())) {
+      throw new CustomError("Sin base de datos", 503);
+    }
+    const sent = await sendAccessReminders();
+    console.log(`[cron] avisos de vencimiento: 7 días=${sent.sevenDays}, hoy=${sent.today}`);
+    res.status(200).json({ ok: true, sent, at: new Date().toISOString() });
   } catch (error) {
     next(error);
   }

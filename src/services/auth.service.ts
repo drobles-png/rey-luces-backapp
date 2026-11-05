@@ -4,6 +4,7 @@ import { env } from "../config/env";
 import { isConnected } from "../config/mongo";
 import { CustomError } from "../errors/customError.error";
 import { User, IUser } from "../models/user.model";
+import { sendWelcomeEmail } from "./notification.service";
 
 const TOKEN_TTL = "30d";
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -56,6 +57,43 @@ export async function login(
 
   user.lastLoginAt = new Date();
   await user.save();
+
+  return { token: signToken(user), user: sanitize(user) };
+}
+
+/** POST /auth/register — siempre crea alumno; admin solo por seed. */
+export async function register(input: {
+  name: string;
+  email: string;
+  phone: string;
+  password: string;
+}): Promise<{ token: string; user: SessionUser }> {
+  requireDb();
+  const name = input.name.trim();
+  const email = input.email.toLowerCase().trim();
+  const phone = input.phone.trim();
+
+  if (!name) throw new CustomError("Escribe tu nombre", 400);
+  if (!EMAIL.test(email)) throw new CustomError("Escribe un correo válido", 400);
+  // Payphone exige el celular del comprador: se pide desde el registro.
+  if (phone.replace(/\D/g, "").length < 9) {
+    throw new CustomError("Escribe un número de celular válido", 400);
+  }
+  if (input.password.length < 8) {
+    throw new CustomError("La contraseña debe tener al menos 8 caracteres", 400);
+  }
+  if (await User.exists({ email })) {
+    throw new CustomError("Ya existe una cuenta con ese correo. Inicia sesión.", 409);
+  }
+
+  const user = await User.create({
+    email,
+    password: input.password,
+    name,
+    phone,
+    accountType: "customer",
+  });
+  void sendWelcomeEmail({ email: user.email, name: user.name });
 
   return { token: signToken(user), user: sanitize(user) };
 }
